@@ -9,6 +9,36 @@ curve graphs. Each curve is treated as a graph so the model can learn from the
 shape of the A-Ci response, the relationship between nearby curve points, and
 process-aware features derived from photosynthesis equations.
 
+## The Problem We Are Trying To Solve
+
+An A-Ci curve measures how net photosynthesis, `Anet`, changes as intercellular
+CO2 concentration, `Ci`, changes. In C3 photosynthesis, different parts of the
+curve are controlled by different biochemical limits:
+
+![C3 A-Ci limitation regions](ACi_C3.png)
+
+- At low `Ci`, photosynthesis is usually **Rubisco limited**.
+- In the middle region, the curve is often **RuBP regeneration limited**.
+- At high `Ci`, the response can become **TPU limited**, where photosynthesis
+  starts to flatten.
+
+The black dots in the figure represent measured A-Ci points. The colored curves
+show the candidate biochemical rates: `Ac`, `Aj`, and `Ap`. The red dashed lines
+mark the transition regions where the active limitation changes.
+
+The difficult part is that real measured points do not come with labels saying
+"this point is Rubisco limited" or "this point is TPU limited." Near the
+transition boundaries, even small noise in the curve can make the active
+limitation hard to identify by eye or with simple rules.
+
+That is the classification problem SEAGAN solves: for every point on an A-Ci
+curve, predict which biochemical process is limiting photosynthesis.
+
+Instead of treating points independently, SEAGAN treats the whole A-Ci curve as
+a graph. Each measured point becomes a node, nearby points become graph edges,
+and the model uses both curve shape and process-aware edge information to make
+point-level limitation-state predictions.
+
 ![SEAGAN GAT architecture](https://raw.githubusercontent.com/GitHub-srivastava/SEAGAN-PyPI/main/GAT_architecture.png)
 
 ## What Is Inside
@@ -153,4 +183,3 @@ See [CITATION.cff](CITATION.cff) for citation metadata.
 See [LICENSE](LICENSE). In short: you can use, modify, and share this code under
 the MIT License. Citation is not a replacement for the license, but it is the
 expected scholarly practice when this work helps your research or software.
-
