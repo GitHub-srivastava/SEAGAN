@@ -23,37 +23,75 @@ from seagan import (
 from _repo_data import default_data_dir, load_repo_split
 
 
+# =============================================================================
+# Things you will most likely change
+# =============================================================================
+DATA_DIR = default_data_dir()
+
+# For a quick first run, keep this small. For a real run, try 600-800 epochs.
+EPOCHS = 30
+
+BATCH_SIZE = 128
+TRAIN_FRACTION = 0.75
+RANDOM_SEED = 42
+
+LEARNING_RATE = 1e-3
+WEIGHT_DECAY = 1e-4
+FOCAL_GAMMA = 0.0
+USE_CLASS_WEIGHTS = True
+
+# These match the small SEAGAN example model from the PyPI package.
+ATTENTION_HEADS = 5
+HIDDEN_SIZES = [64, 64]
+DROPOUT = 0.2
+K_NEIGHBORS = 4
+
+CHECKPOINT_TO_SAVE = Path("outputs") / "seagan_example_checkpoint.pt"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Train SEAGAN on Data/Train and evaluate on Data/Test."
     )
-    parser.add_argument("--data-dir", default=default_data_dir(), help="Path to Data folder.")
-    parser.add_argument("--epochs", type=int, default=30)
-    parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument("--train-frac", type=float, default=0.75)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--weight-decay", type=float, default=1e-4)
-    parser.add_argument("--gamma", type=float, default=0.0)
-    parser.add_argument("--heads", type=int, default=5)
-    parser.add_argument("--hidden-sizes", type=int, nargs="+", default=[64, 64])
-    parser.add_argument("--dropout", type=float, default=0.2)
-    parser.add_argument("--k-neighbors", type=int, default=4)
+    parser.add_argument("--data-dir", default=DATA_DIR, help="Path to the Data folder.")
+    parser.add_argument("--epochs", type=int, default=EPOCHS)
+    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+    parser.add_argument("--train-frac", type=float, default=TRAIN_FRACTION)
+    parser.add_argument("--seed", type=int, default=RANDOM_SEED)
+    parser.add_argument("--lr", type=float, default=LEARNING_RATE)
+    parser.add_argument("--weight-decay", type=float, default=WEIGHT_DECAY)
+    parser.add_argument("--gamma", type=float, default=FOCAL_GAMMA)
+    parser.add_argument("--heads", type=int, default=ATTENTION_HEADS)
+    parser.add_argument("--hidden-sizes", type=int, nargs="+", default=HIDDEN_SIZES)
+    parser.add_argument("--dropout", type=float, default=DROPOUT)
+    parser.add_argument("--k-neighbors", type=int, default=K_NEIGHBORS)
     parser.add_argument(
         "--output",
-        default=Path("outputs") / "seagan_example_checkpoint.pt",
+        default=CHECKPOINT_TO_SAVE,
         help="Checkpoint path to write after training.",
     )
-    parser.add_argument("--no-class-weights", action="store_true")
+    parser.add_argument(
+        "--no-class-weights",
+        action="store_true",
+        default=not USE_CLASS_WEIGHTS,
+        help="Turn off inverse-frequency class weights.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
 
+    print("SEAGAN training example")
+    print(f"Data folder: {Path(args.data_dir).resolve()}")
+    print(f"Epochs: {args.epochs}")
+    print(f"Hidden sizes: {args.hidden_sizes}, heads: {args.heads}")
+
+    print("\n1) Loading Excel files...")
     train_points, train_params = load_repo_split("Train", args.data_dir)
     test_points, test_params = load_repo_split("Test", args.data_dir)
 
+    print("2) Building A-Ci graphs with seagan.build_graphs_from_df...")
     graphs, class_map = build_graphs_from_df(
         train_points,
         train_params,
@@ -66,12 +104,14 @@ def main() -> None:
         k=args.k_neighbors,
     )
 
+    print("3) Splitting training graphs into train and validation groups...")
     train_graphs, val_graphs = split_graphs(
         graphs,
         train_frac=args.train_frac,
         seed=args.seed,
     )
 
+    print("4) Standardizing node and edge features using training graphs only...")
     x_mean, x_std = fit_node_standardizer(train_graphs)
     train_graphs = apply_node_standardizer(train_graphs, x_mean, x_std)
     val_graphs = apply_node_standardizer(val_graphs, x_mean, x_std)
@@ -86,10 +126,13 @@ def main() -> None:
     class_weights = None
     class_counts = None
     if not args.no_class_weights:
+        print("5) Computing class weights for the node labels...")
         class_weights, class_counts = compute_inverse_frequency_class_weights(
             train_graphs,
             n_classes=n_classes,
         )
+    else:
+        print("5) Class weights are turned off.")
 
     train_loader, val_loader = make_loaders(
         train_graphs,
@@ -98,6 +141,7 @@ def main() -> None:
     )
     test_loader = DataLoader(test_graphs, batch_size=args.batch_size, shuffle=False)
 
+    print("6) Creating the SEAGAN model...")
     model = SEAGAN(
         in_dim=train_graphs[0].x.shape[1],
         n_classes=n_classes,
@@ -107,6 +151,7 @@ def main() -> None:
         edge_dim=train_graphs[0].edge_attr.shape[1],
     )
 
+    print("7) Training. This can take a while for large epoch counts...")
     model, train_metrics, val_metrics = train_only(
         model=model,
         train_loader=train_loader,
@@ -119,6 +164,7 @@ def main() -> None:
         class_weights=class_weights,
     )
 
+    print("8) Testing once on the held-out Data/Test folder...")
     test_metrics = evaluate_loader_metrics(
         model,
         test_loader,
@@ -154,16 +200,22 @@ def main() -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     torch.save(checkpoint, output)
 
+    print("\nDone.")
     print(f"Class map: {class_map}")
     if class_counts is not None:
         print(f"Class counts: {class_counts.tolist()}")
         print(f"Class weights: {class_weights.tolist()}")
-    print(f"Train metrics: {train_metrics}")
-    print(f"Validation metrics: {val_metrics}")
-    print(f"Test metrics: {test_metrics}")
+    print_metrics("Train", train_metrics)
+    print_metrics("Validation", val_metrics)
+    print_metrics("Test", test_metrics)
     print(f"Saved checkpoint: {output}")
+
+
+def print_metrics(name: str, metrics: dict[str, float]) -> None:
+    print(f"\n{name} metrics")
+    for key in ("loss", "accuracy", "precision", "recall", "f1", "fpr", "fnr"):
+        print(f"  {key:>9}: {metrics[key]:.4f}")
 
 
 if __name__ == "__main__":
     main()
-

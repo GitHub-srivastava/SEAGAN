@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
+# The repository has files for 8-point through 15-point A-Ci curves.
 CURVE_TYPES = tuple(range(8, 16))
 
 
@@ -50,4 +51,3 @@ def _load_many(folder: Path, prefix: str, curve_types: tuple[int, ...]) -> pd.Da
         frames.append(df)
 
     return pd.concat(frames, ignore_index=True)
-
