@@ -39,7 +39,7 @@ a graph. Each measured point becomes a node, nearby points become graph edges,
 and the model uses both curve shape and process-aware edge information to make
 point-level limitation-state predictions.
 
-![SEAGAN GAT architecture](GAT_architecture)
+![SEAGAN GAT architecture](GAT_architecture.png)
 
 ## What Is Inside
 
