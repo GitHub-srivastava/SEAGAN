@@ -139,6 +139,13 @@ then evaluates once on `Data/Test`. The saved checkpoint includes the model
 weights, class map, standardization statistics, training settings, and final
 metrics.
 
+Class weights are still used in the focal loss during training, matching the
+notebook idea of reducing bias from imbalanced node counts. The reported
+evaluation metrics are different on purpose: the script scores class 1, class 2,
+and class 3 separately, then averages the three values without applying class
+weights. This keeps the largest class from dominating F1, recall, precision, and
+the other reported results.
+
 ## Data Format
 
 The point files should contain one row per point in a curve:

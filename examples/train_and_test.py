@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 import torch
+import torch.nn.functional as F
 from torch_geometric.loader import DataLoader
 
 from seagan import (
@@ -12,7 +13,6 @@ from seagan import (
     apply_node_standardizer,
     build_graphs_from_df,
     compute_inverse_frequency_class_weights,
-    evaluate_loader_metrics,
     fit_edge_standardizer,
     fit_node_standardizer,
     make_loaders,
@@ -29,7 +29,7 @@ from _repo_data import default_data_dir, load_repo_split
 DATA_DIR = default_data_dir()
 
 # For a quick first run, keep this small. For a real run, try 600-800 epochs.
-EPOCHS = 30
+EPOCHS = 500
 
 BATCH_SIZE = 128
 TRAIN_FRACTION = 0.75
@@ -38,6 +38,9 @@ RANDOM_SEED = 42
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-4
 FOCAL_GAMMA = 0.0
+
+# Keep this True when you want the focal-loss training step to compensate for
+# class imbalance. Evaluation metrics are still unweighted class means.
 USE_CLASS_WEIGHTS = True
 
 # These match the small SEAGAN example model from the PyPI package.
@@ -74,7 +77,7 @@ def parse_args() -> argparse.Namespace:
         "--no-class-weights",
         action="store_true",
         default=not USE_CLASS_WEIGHTS,
-        help="Turn off inverse-frequency class weights.",
+        help="Turn off inverse-frequency class weights in the training loss.",
     )
     return parser.parse_args()
 
@@ -126,13 +129,13 @@ def main() -> None:
     class_weights = None
     class_counts = None
     if not args.no_class_weights:
-        print("5) Computing class weights for the node labels...")
+        print("5) Computing class weights for the focal training loss...")
         class_weights, class_counts = compute_inverse_frequency_class_weights(
             train_graphs,
             n_classes=n_classes,
         )
     else:
-        print("5) Class weights are turned off.")
+        print("5) Class weights are turned off for the training loss.")
 
     train_loader, val_loader = make_loaders(
         train_graphs,
@@ -164,11 +167,23 @@ def main() -> None:
         class_weights=class_weights,
     )
 
-    print("8) Testing once on the held-out Data/Test folder...")
-    test_metrics = evaluate_loader_metrics(
+    print("8) Evaluating with simple class-mean metrics...")
+    train_metrics = evaluate_loader_class_mean(
+        model,
+        train_loader,
+        n_classes=n_classes,
+        gamma=args.gamma,
+    )
+    val_metrics = evaluate_loader_class_mean(
+        model,
+        val_loader,
+        n_classes=n_classes,
+        gamma=args.gamma,
+    )
+    test_metrics = evaluate_loader_class_mean(
         model,
         test_loader,
-        class_weights=class_weights,
+        n_classes=n_classes,
         gamma=args.gamma,
     )
 
@@ -186,7 +201,9 @@ def main() -> None:
         "GAMMA": args.gamma,
         "seed": args.seed,
         "class_map": class_map,
+        "class_weights_used_for_training_loss": not args.no_class_weights,
         "class_counts": class_counts.tolist() if class_counts is not None else None,
+        "class_weights": class_weights.tolist() if class_weights is not None else None,
         "x_mean": x_mean,
         "x_std": x_std,
         "e_mean": e_mean,
@@ -211,10 +228,129 @@ def main() -> None:
     print(f"Saved checkpoint: {output}")
 
 
+@torch.no_grad()
+def evaluate_loader_class_mean(
+    model,
+    loader,
+    n_classes: int,
+    gamma: float = 0.0,
+    device=None,
+) -> dict[str, object]:
+    """Evaluate by scoring each class first, then averaging the classes.
+
+    This avoids a common problem with imbalanced A-Ci labels: the class with the
+    most points should not dominate the final reported metrics. These metrics do
+    not use the training class weights.
+    """
+
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    model = model.to(device)
+    model.eval()
+
+    confusion = torch.zeros((n_classes, n_classes), dtype=torch.long)
+    loss_sum_by_class = torch.zeros(n_classes, dtype=torch.float64)
+    count_by_class = torch.zeros(n_classes, dtype=torch.float64)
+
+    for batch in loader:
+        batch = batch.to(device)
+        logits = model(batch.x, batch.edge_index, edge_attr=batch.edge_attr)
+        per_node_loss = F.cross_entropy(logits, batch.y, reduction="none")
+
+        if gamma != 0.0:
+            true_probability = torch.softmax(logits, dim=1)[
+                torch.arange(batch.y.numel(), device=device),
+                batch.y,
+            ]
+            per_node_loss = ((1.0 - true_probability) ** gamma) * per_node_loss
+
+        predictions = logits.argmax(dim=1)
+
+        for class_id in range(n_classes):
+            class_mask = batch.y == class_id
+            class_count = int(class_mask.sum().item())
+            if class_count > 0:
+                loss_sum_by_class[class_id] += per_node_loss[class_mask].sum().cpu()
+                count_by_class[class_id] += class_count
+
+        for true_label, pred_label in zip(batch.y.cpu(), predictions.cpu()):
+            confusion[int(true_label), int(pred_label)] += 1
+
+    per_class = {}
+    for class_id in range(n_classes):
+        true_positive = float(confusion[class_id, class_id])
+        false_negative = float(confusion[class_id, :].sum() - confusion[class_id, class_id])
+        false_positive = float(confusion[:, class_id].sum() - confusion[class_id, class_id])
+        true_negative = float(confusion.sum() - true_positive - false_negative - false_positive)
+
+        class_loss = safe_divide(
+            float(loss_sum_by_class[class_id]),
+            float(count_by_class[class_id]),
+        )
+        class_accuracy = safe_divide(true_positive, true_positive + false_negative)
+        class_precision = safe_divide(true_positive, true_positive + false_positive)
+        class_recall = class_accuracy
+        class_f1 = safe_divide(
+            2.0 * class_precision * class_recall,
+            class_precision + class_recall,
+        )
+        class_fpr = safe_divide(false_positive, false_positive + true_negative)
+        class_fnr = safe_divide(false_negative, false_negative + true_positive)
+
+        per_class[class_id + 1] = {
+            "loss": class_loss,
+            "accuracy": class_accuracy,
+            "precision": class_precision,
+            "recall": class_recall,
+            "f1": class_f1,
+            "fpr": class_fpr,
+            "fnr": class_fnr,
+            "support": int(count_by_class[class_id].item()),
+        }
+
+    return {
+        "loss": mean_metric(per_class, "loss"),
+        "accuracy": mean_metric(per_class, "accuracy"),
+        "precision": mean_metric(per_class, "precision"),
+        "recall": mean_metric(per_class, "recall"),
+        "f1": mean_metric(per_class, "f1"),
+        "fpr": mean_metric(per_class, "fpr"),
+        "fnr": mean_metric(per_class, "fnr"),
+        "per_class": per_class,
+        "confusion_matrix": confusion.tolist(),
+    }
+
+
+def safe_divide(numerator: float, denominator: float) -> float:
+    if denominator == 0.0:
+        return float("nan")
+    return numerator / denominator
+
+
+def mean_metric(per_class: dict[int, dict[str, float]], metric_name: str) -> float:
+    values = [
+        class_metrics[metric_name]
+        for class_metrics in per_class.values()
+        if not torch.isnan(torch.tensor(class_metrics[metric_name]))
+    ]
+    if not values:
+        return float("nan")
+    return float(sum(values) / len(values))
+
+
 def print_metrics(name: str, metrics: dict[str, float]) -> None:
-    print(f"\n{name} metrics")
+    print(f"\n{name} metrics, simple mean across classes")
     for key in ("loss", "accuracy", "precision", "recall", "f1", "fpr", "fnr"):
         print(f"  {key:>9}: {metrics[key]:.4f}")
+
+    print("  per-class accuracy:")
+    for class_id, class_metrics in metrics["per_class"].items():
+        print(
+            f"    class {class_id}: "
+            f"{class_metrics['accuracy']:.4f} "
+            f"(n={class_metrics['support']})"
+        )
 
 
 if __name__ == "__main__":
