@@ -165,8 +165,7 @@ The parameter files should contain one row per curve:
 | `curve_id` | curve identifier |
 | `Tleaf` | leaf temperature in Celsius |
 
-Other parameter columns can stay in the file. SEAGAN only needs `curve_id` and
-`Tleaf` for graph construction.
+SEAGAN only needs `curve_id` and `Tleaf` for graph construction.
 
 ## Citation
 
