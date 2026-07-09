@@ -15,7 +15,7 @@ An A-Ci curve measures how net photosynthesis, `Anet`, changes as intercellular
 CO2 concentration, `Ci`, changes. In C3 photosynthesis, different parts of the
 curve are controlled by different biochemical limits:
 
-![C3 A-Ci limitation regions](ACi_C3.png {width=40px height=400px})
+<img src="ACi_C3.png" alt="C3 A-Ci limitation regions" width="520">
 
 - At low `Ci`, photosynthesis is usually **Rubisco limited**.
 - In the middle region, the curve is often **RuBP regeneration limited**.
