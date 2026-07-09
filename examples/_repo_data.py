@@ -19,10 +19,12 @@ def load_repo_split(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load this repository's Train/Test Excel files.
 
-    The PyPI helper follows the original notebook's shuffled point-file naming.
-    This repository stores point files as ACi_points_*points.xlsx, so this thin
-    loader handles only the local filenames and leaves graph construction to
-    seagan.build_graphs_from_df.
+    The examples prefer the combined files:
+      ACi_points_train.xlsx / ACi_params_train.xlsx
+      ACi_points_test.xlsx  / ACi_params_test.xlsx
+
+    If those files are not present, the loader falls back to the older separate
+    files, such as ACi_points_8points.xlsx and ACi_params_8points.xlsx.
     """
 
     root = Path(data_dir) if data_dir is not None else default_data_dir()
@@ -30,9 +32,33 @@ def load_repo_split(
     if not folder.exists():
         raise FileNotFoundError(f"Missing data split folder: {folder}")
 
-    points = _load_many(folder, "ACi_points", curve_types)
-    params = _load_many(folder, "ACi_params", curve_types)
+    split_name = split.lower()
+    points = _load_one_or_many(
+        folder,
+        combined_name=f"ACi_points_{split_name}.xlsx",
+        prefix="ACi_points",
+        curve_types=curve_types,
+    )
+    params = _load_one_or_many(
+        folder,
+        combined_name=f"ACi_params_{split_name}.xlsx",
+        prefix="ACi_params",
+        curve_types=curve_types,
+    )
     return points, params
+
+
+def _load_one_or_many(
+    folder: Path,
+    combined_name: str,
+    prefix: str,
+    curve_types: tuple[int, ...],
+) -> pd.DataFrame:
+    combined_path = folder / combined_name
+    if combined_path.exists():
+        return pd.read_excel(combined_path, engine="openpyxl")
+
+    return _load_many(folder, prefix, curve_types)
 
 
 def _load_many(folder: Path, prefix: str, curve_types: tuple[int, ...]) -> pd.DataFrame:
