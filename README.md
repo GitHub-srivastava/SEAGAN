@@ -9,7 +9,7 @@ curve graphs. Each curve is treated as a graph so the model can learn from the
 shape of the A-Ci response, the relationship between nearby curve points, and
 process-aware features derived from photosynthesis equations.
 
-## The Problem We Are Trying To Solve
+## Problem description
 
 An A-Ci curve measures how net photosynthesis, `Anet`, changes as intercellular
 CO2 concentration, `Ci`, changes. In C3 photosynthesis, different parts of the
