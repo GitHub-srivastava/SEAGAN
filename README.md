@@ -43,12 +43,10 @@ point-level limitation-state predictions.
 
 ## What Is Inside
 
-- `Data/Train/ACi_points_train.xlsx`: all training curve points in one file.
-- `Data/Train/ACi_params_train.xlsx`: all training curve parameters in one file.
-- `Data/Test/ACi_points_test.xlsx`: all testing curve points in one file.
-- `Data/Test/ACi_params_test.xlsx`: all testing curve parameters in one file.
-- `combine_excel_files.py`: rebuilds the combined files from the older
-  per-point-count Excel files.
+- `Data/Train/ACi_points.xlsx`: all training curve points in one file.
+- `Data/Train/ACi_params.xlsx`: all training curve parameters in one file.
+- `Data/Test/ACi_points.xlsx`: all testing curve points in one file.
+- `Data/Test/ACi_params.xlsx`: all testing curve parameters in one file.
 - `GNN_FC_GAT_Focal.ipynb`: the original notebook workflow.
 - `examples/pretrained_inference.py`: use the pretrained model from
   `pip install seagan` on one selected test curve.
@@ -162,23 +160,6 @@ The parameter files should contain one row per curve:
 
 Other parameter columns can stay in the file. SEAGAN only needs `curve_id` and
 `Tleaf` for graph construction.
-
-## Rebuild The Combined Excel Files
-
-The repository keeps one combined points file and one combined parameter file
-for each split. If you update the older per-point-count files, regenerate the
-combined files with:
-
-```powershell
-python combine_excel_files.py
-```
-
-This writes:
-
-- `Data/Train/ACi_points_train.xlsx`
-- `Data/Train/ACi_params_train.xlsx`
-- `Data/Test/ACi_points_test.xlsx`
-- `Data/Test/ACi_params_test.xlsx`
 
 ## Citation
 
