@@ -47,7 +47,6 @@ point-level limitation-state predictions.
 - `Data/Train/ACi_params.xlsx`: all training curve parameters in one file.
 - `Data/Test/ACi_points.xlsx`: all testing curve points in one file.
 - `Data/Test/ACi_params.xlsx`: all testing curve parameters in one file.
-- `GNN_FC_GAT_Focal.ipynb`: the original notebook workflow.
 - `examples/pretrained_inference.py`: use the pretrained model from
   `pip install seagan` on one selected test curve.
 - `examples/train_and_test.py`: train a fresh SEAGAN model and evaluate it on
